@@ -1,0 +1,157 @@
+############# House Price Preparation ###############
+
+
+set global local_infile=on;
+
+create table house_price ( 
+`Source.Name` varchar(100),
+ `Name` varchar(100),
+ URI varchar (100),
+ `Region GSS code` varchar(100),
+ Period varchar(100),
+ `Sales volume` varchar(100),
+ `Reporting period` varchar(100),
+ `Pivotable date` varchar(100),
+ Attribute varchar(100),
+ `Value` varchar(100)
+ );
+
+
+load data local infile 'C:/Users/CalumBrown/OneDrive - Blend 360/Documents/Personal Development/Scottish House Prices/Housepricecombined.csv' into table house_price
+fields terminated by ','
+enclosed by '"'
+lines terminated by '\r\n'
+ignore 1 lines;
+
+select * 
+from house_price;
+
+-- Creating duplicate table to edit
+
+create table house_fact
+like house_price;
+
+insert into house_fact
+select *
+from house_price;
+
+-- Removing unnecessary rows
+
+alter table house_fact
+drop column `Source.Name`,
+drop column URI,
+drop column `Region GSS code`,
+drop column `Reporting Period`;
+
+-- Checking for duplicate rows
+
+with cte as
+(
+select *, row_number() over(partition by `Name`, Period, Attribute) as rowcheck
+from house_fact
+)
+
+select * 
+from cte 
+where rowcheck > 1;
+
+-- Double check with group by method 
+
+select `Name`, Period, Attribute, count(*) as rowcount
+from house_fact
+group by `Name`, Period, Attribute
+order by rowcount desc;
+
+-- Standardizing column headers
+
+alter table house_fact 
+rename column `Name` to Area,
+rename column `Sales volume` to Volume,
+rename column `Attribute` to Property;
+
+-- Standardizing columns
+
+select distinct Area
+from house_fact
+order by Area;
+
+update house_fact
+set Area = 'Western Hebrides'
+where Area = 'Na h-Eileanan siar';
+
+select distinct Period 
+from house_fact
+order by Period;
+
+select distinct Volume
+from house_fact
+order by Volume asc;
+
+-- Blanks in volume column 
+-- going to assign average or could it mean 0?
+-- 240 blanks 
+
+SELECT *
+FROM house_fact
+WHERE volume NOT REGEXP '[0-9]';
+
+-- just going to assign region average
+
+update house_fact f
+left join (select Area, avg(Volume) as average
+      from house_fact
+      group by Area) as d
+on f.Area = d.Area
+set Volume = average 
+where Volume = '';
+
+select distinct `Pivotable date`
+from house_fact 
+order by `Pivotable date` desc;
+
+select distinct property 
+from house_fact
+order by property;
+
+select distinct `Value`
+from house_fact
+order by `Value` asc;
+
+-- Altering data types
+
+alter table house_fact
+modify column Area varchar(50),
+modify column Volume int,          -- data comes without decimals 
+modify column Property varchar(50),
+modify column `Value` int;
+
+-- Dealing with dates. Going to leave in pivotabledate
+
+alter table house_fact 
+drop column Period;
+
+select distinct `Pivotable date`
+from house_fact;
+
+-- format is day month year
+
+alter table house_fact
+rename column `Pivotable date` to `date`;
+
+
+update house_fact 
+set `date` = str_to_date(`date`, '%d/%m/%Y');
+
+alter table house_fact
+modify column `date` date;
+
+show variables like 'secure_file_priv';
+
+SELECT 'Area', 'Volume','date', 'property', 'value' 
+UNION ALL
+SELECT Area, Volume,`date`, property, `value` 
+from house_fact
+INTO OUTFILE 'C:/Users/CalumBrown/OneDrive - Blend 360/Documents/Personal Development/Scottish House Prices/housepricetable.csv'
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n';
